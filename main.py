@@ -8,7 +8,6 @@ from PIL import Image
 import pytesseract
 import docx
 import PyPDF2
-import json
 from datetime import datetime
 
 # ================= CẤU HÌNH GIAO DIỆN =================
@@ -41,9 +40,11 @@ navigate_items = [
     {"id": "help", "icon": "❓", "label": "HELP", "description": "Hướng dẫn sử dụng"}
 ]
 
-# ================= CÁC HÀM XỬ LÝ LÕI ĐỘC LẬP (Không dùng Class / Staticmethod) =================
+# ================= CÁC HÀM XỬ LÝ LÕI ĐỘC LẬP =================
 STOPWORDS = {"là", "của", "và", "các", "những", "một", "cho", "đến", "trong", "có", "được", "với", "tại", "theo"}
-HISTORY_FILE = "history.json"
+
+# Đổi đuôi file lưu trữ sang .txt thay vì .json
+HISTORY_FILE = "history.txt"
 
 def extract_text(path):
     ext = os.path.splitext(path)[1].lower()
@@ -89,20 +90,35 @@ def get_similarity(words1, words2, n=2):
     inter = s1.intersection(s2)
     return (len(inter) / len(s1.union(s2))) * 100, inter
 
+
+# Đã thay đổi logic load_history để đọc từ file .txt (ngăn cách bằng dấu Tab)
 def load_history():
+    hist = []
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return []
-    return []
+            for line in f:
+                # Cắt chuỗi theo dấu Tab \t
+                parts = line.strip('\n').split('\t')
+                if len(parts) == 4:
+                    hist.append({
+                        "timestamp": parts[0],
+                        "mode": parts[1],
+                        "similarity": parts[2],
+                        "detail": parts[3]
+                    })
+    return hist
 
+# Đã thay đổi logic save_history để ghi vào file .txt
 def save_history(record):
     hist = load_history()
     hist.insert(0, record) # Thêm vào đầu danh sách
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(hist, f, ensure_ascii=False, indent=4)
+        for r in hist:
+            # Xóa các dấu tab/xuống dòng thừa trong detail để không làm hỏng cấu trúc file txt
+            detail_safe = str(r['detail']).replace('\t', ' ').replace('\n', ' ')
+            # Ghi vào file với dấu Tab ngăn cách các trường dữ liệu
+            f.write(f"{r['timestamp']}\t{r['mode']}\t{r['similarity']}\t{detail_safe}\n")
+
 
 class Base_Page(ctk.CTkFrame):
     def __init__(self, master, title, subtitle, icon, app_ref, **kwargs):
@@ -131,12 +147,10 @@ class Home_Page(Base_Page):
         welcome_lbl.pack(pady=(20, 5))
         ctk.CTkLabel(self.body, text="Chọn một chức năng bên dưới để bắt đầu:", font=("Arial", 14), text_color=TXT_WHITE).pack(pady=(0, 30))
 
-        # Container cho các phím tắt
         grid_frame = ctk.CTkFrame(self.body, fg_color="transparent")
         grid_frame.pack(fill="both", expand=True, padx=40)
         grid_frame.grid_columnconfigure((0, 1), weight=1)
 
-        # Danh sách các chức năng chính để làm nút bấm
         shortcuts = [
             {"id": "checker", "icon": "🔍", "label": "CHECKER", "desc": "So sánh 2 văn bản hoặc quét ảnh OCR."},
             {"id": "compare", "icon": "📂", "label": "COMPARE FILES", "desc": "Đối chiếu 1 file với cả thư mục."},
@@ -154,22 +168,17 @@ class Home_Page(Base_Page):
                 row += 1
 
     def create_shortcut_card(self, parent, item):
-        # Thẻ Card
         card = ctk.CTkFrame(parent, fg_color=CARD_BG, border_color=CARD_BORDER, border_width=1, corner_radius=15, cursor="hand2")
         
-        # Icon to
         lbl_icon = ctk.CTkLabel(card, text=item["icon"], font=("Arial", 40))
         lbl_icon.pack(pady=(25, 10))
 
-        # Tên chức năng
         lbl_title = ctk.CTkLabel(card, text=item["label"], font=("Arial", 16, "bold"), text_color=TXT_ACCENT)
         lbl_title.pack()
 
-        # Mô tả ngắn
         lbl_d = ctk.CTkLabel(card, text=item["desc"], font=("Arial", 11), text_color=TXT_MUTED, wraplength=220)
         lbl_d.pack(pady=(5, 25))
 
-        # Hiệu ứng hover và sự kiện Click cho Card và tất cả thành phần bên trong
         def on_click(e): self.app_ref.navigate(item["id"])
         def on_enter(e): card.configure(border_color=SB_ACCENT, fg_color=SB_BTN_HOVER)
         def on_leave(e): card.configure(border_color=CARD_BORDER, fg_color=CARD_BG)
@@ -180,6 +189,7 @@ class Home_Page(Base_Page):
             widget.bind("<Leave>", on_leave)
 
         return card
+
 # ================= CÁC COMPONENT UI =================
 class Navigate_Buttons(ctk.CTkFrame):
     def __init__(self, master, item: dict, command, **kwargs):
@@ -259,34 +269,6 @@ class Sidebar(ctk.CTkFrame):
     def set_active(self, page_id: str):
         for pid, button in self.buttons.items():
             button.set_active(pid == page_id)
-
-class Base_Page(ctk.CTkFrame):
-    def __init__(self, master, title, subtitle, icon, app_ref, **kwargs):
-        super().__init__(master, corner_radius=0, fg_color=PAGE_BG, **kwargs)
-        self.app_ref = app_ref
-        
-        header = ctk.CTkFrame(self, corner_radius=0, fg_color=CARD_BG, border_width=0)
-        header.pack(fill="x")
-
-        header_inner_frame = ctk.CTkFrame(header, fg_color="transparent")
-        header_inner_frame.pack(fill="x", padx=32, pady=18)
-
-        header_inner = ctk.CTkLabel(header_inner_frame, text=icon, width=48, height=48, font=("Arial", 26), fg_color="#252D40", corner_radius=12)
-        header_inner.pack(side="left", padx=(0, 16))
-
-        title_column_frame = ctk.CTkFrame(header_inner_frame, fg_color="transparent")
-        title_column_frame.pack(side="left", fill="y")
-
-        ctk.CTkLabel(title_column_frame, text=title, font=("Arial Black", 18, "bold"), text_color=TXT_WHITE, anchor="w").pack(fill="x")
-        ctk.CTkLabel(title_column_frame, text=subtitle, font=("Arial", 12), text_color=TXT_MUTED, anchor="w").pack(fill="x")
-
-        ctk.CTkFrame(self, height=1, fg_color="#252D40").pack(fill="x")
-
-        self.body = ctk.CTkFrame(self, fg_color=PAGE_BG)
-        self.body.pack(fill="both", expand=True, padx=20, pady=20)
-        self.build_body()
-
-    def build_body(self): pass
 
 # ================= CÁC TRANG CHỨC NĂNG =================
 
@@ -542,8 +524,6 @@ class Help_Page(Base_Page):
 3. Lịch sử (History):
 - Mỗi lần bạn nhấn so sánh hoặc quét thư mục, kết quả sẽ tự động lưu lại đây.
 - Bạn có thể xem lại chi tiết thời gian quét, thể loại kiểm tra và tỷ lệ trùng lặp.
-
-LƯU Ý: Để kết quả OCR (quét ảnh) tốt nhất, hãy sử dụng ảnh có độ phân giải cao và nền giấy rõ ràng.
 """
         textbox.insert("1.0", help_text)
         textbox.configure(state="disabled")
