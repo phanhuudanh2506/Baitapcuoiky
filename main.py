@@ -162,10 +162,10 @@ class Navigate_Buttons(ctk.CTkFrame):
         w.bind("<Leave>", self.on_leave)
         for c in w.winfo_children(): self.bind_all_children(c)
 
-    def on_click(self, event=None):  self.command(self.item["id"])
-    def on_enter(self, event=None):
+    def on_click(self, _):  self.command(self.item["id"])
+    def on_enter(self, _):
         if not self.active: self.configure(fg_color=SB_BTN_HOVER)
-    def on_leave(self, event=None):
+    def on_leave(self, _):
         if not self.active: self.configure(fg_color="transparent")
 
 class Sidebar(ctk.CTkFrame):
@@ -284,7 +284,7 @@ class Checker_Page(Base_Page):
     def highlight(self, r1, r2):
         self.txt_1.tag_remove("match","1.0",tk.END)
         self.txt_2.tag_remove("match","1.0",tk.END)
-        score, common = get_similarity(preprocess_words(r1), preprocess_words(r2))
+        _, common = get_similarity(preprocess_words(r1), preprocess_words(r2))
         for ngram in common:
             phrase = " ".join(ngram)
             for w in [self.txt_1, self.txt_2]:
